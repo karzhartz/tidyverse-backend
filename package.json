@@ -1,0 +1,30 @@
+{
+  "name": "wimak-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Server-side service for Wimak Total Care: staff administration, Stripe checkout, webhooks and booking emails.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "check": "node src/cli.mjs check",
+    "create": "node src/cli.mjs create",
+    "create-admin": "node src/cli.mjs create --role admin",
+    "list": "node src/cli.mjs list",
+    "link": "node src/cli.mjs link",
+    "set-role": "node src/cli.mjs set-role",
+    "set-active": "node src/cli.mjs set-active",
+    "reset-password": "node src/cli.mjs reset-password",
+    "stripe:listen": "stripe listen --forward-to localhost:8787/webhooks/stripe",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "express": "^5.2.1",
+    "nodemailer": "^10.0.15",
+    "stripe": "^23.0.0"
+  }
+}

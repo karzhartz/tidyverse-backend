@@ -1,0 +1,9 @@
+# Secrets — the whole point of this file.
+.env
+.env.*
+!.env.example
+
+# Dependencies and noise
+node_modules/
+*.log
+.DS_Store
