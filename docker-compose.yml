@@ -1,0 +1,57 @@
+# Wimak Total Care — the API and the website together.
+#
+#   cd wimak-service
+#   docker compose up -d --build
+#
+# The website is built from ../tidyverse-helpers, so the two repositories must
+# sit side by side. The API's secrets come from wimak-service/.env, which
+# Docker reads at run time and never copies into an image.
+#
+# Before going live, check three values in wimak-service/.env:
+#
+#   PUBLIC_SITE_URL   the website's public origin, e.g. https://wimaktotalcare.com
+#                     (this is what Stripe sends the customer back to)
+#   CORS_ORIGINS      that same origin — not "*"
+#   STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET
+#                     live keys, and the webhook must point at
+#                     https://<api-host>/webhooks/stripe
+
+name: wimak
+
+services:
+  api:
+    build:
+      context: .
+    image: wimak-service:latest
+    env_file:
+      - .env
+    environment:
+      # Override the .env defaults: in a container the loopback address would
+      # be unreachable, and a TLS-terminating proxy sits in front.
+      HOST: 0.0.0.0
+      PORT: "8000"
+      TRUST_PROXY: "true"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../tidyverse-helpers
+      args:
+        # Vite inlines VITE_* at build time, so these are build arguments, not
+        # runtime environment. They are public values — the service's URL and
+        # the Supabase publishable key — never a secret.
+        #
+        # This URL is used by the *browser*, so it must be reachable from the
+        # customer's machine, not from inside this compose network.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+    image: wimak-website:latest
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

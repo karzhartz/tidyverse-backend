@@ -1,0 +1,21 @@
+# Keep secrets, host-built dependencies and local noise out of the image.
+#
+# .env is the important one: the Supabase secret key and the Stripe keys live
+# there, and an image layer is readable by anyone who can pull it.
+
+.env
+.env.*
+!.env.example
+
+node_modules
+npm-debug.log*
+
+test
+.git
+.gitignore
+
+# Docs and Docker files are not needed at runtime.
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml

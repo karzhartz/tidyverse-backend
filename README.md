@@ -162,20 +162,77 @@ endpoint will pick it up.
 ```sh
 # 1. the API
 cp .env.example .env      # Supabase + Stripe test keys; use EMAIL_TRANSPORT=console locally
-npm start
+npm start                 # http://127.0.0.1:8000
 
 # 2. forward real Stripe events to it (needs the Stripe CLI)
-stripe listen --forward-to localhost:8787/webhooks/stripe
+stripe listen --forward-to localhost:8000/webhooks/stripe
 #    copy the whsec_… it prints into STRIPE_WEBHOOK_SECRET, then restart
 
 # 3. the website, pointed at the API
 cd ../tidyverse-helpers
-echo 'VITE_API_BASE_URL=http://127.0.0.1:8787' >> .env.local
-npm run dev
+echo 'VITE_API_BASE_URL=http://127.0.0.1:8000' >> .env.local
+npm run dev               # http://localhost:8080
 ```
 
 The webhook secret is **required**: without it the service refuses to start,
 because an unverifiable webhook is worse than no webhook.
+
+## Deploying with Docker
+
+The repository ships a two-stage `Dockerfile` and a `docker-compose.yml` that
+runs the API and the website together. The website is built from
+`../tidyverse-helpers`, so the two repositories need to sit side by side.
+
+```sh
+cd wimak-service
+cp .env.example .env          # fill in the live values
+docker compose up -d --build
+docker compose logs -f api
+```
+
+| Service | URL | Image |
+| --- | --- | --- |
+| API | <http://localhost:8000> | `wimak-service:latest` |
+| Website | <http://localhost:8080> | `wimak-website:latest` |
+
+The API image installs from the lockfile (`npm ci --omit=dev`), runs as the
+non-root `node` user, and sets `HOST=0.0.0.0` — the service's `127.0.0.1`
+default is unreachable from outside a container. Its healthcheck calls
+`/health`, and compose waits for that before starting the website. The SMTP
+check runs *after* the listener opens, so a slow mail host cannot delay the
+healthcheck or hold up bookings.
+
+**The website's configuration is baked in at build time.** Vite inlines `VITE_*`
+variables, so they are build arguments, not runtime environment:
+
+```sh
+docker build -t wimak-website \
+  --build-arg VITE_API_BASE_URL=https://api.wimaktotalcare.com \
+  --build-arg VITE_SUPABASE_URL=https://xxxx.supabase.co \
+  --build-arg VITE_SUPABASE_ANON_KEY=sb_publishable_... \
+  ../tidyverse-helpers
+```
+
+Only the **publishable** Supabase key belongs there. `.dockerignore` keeps
+`.env` out of both images — the API image contains just `node_modules`,
+`package.json` and `src`, so no secret is baked into a layer.
+
+Before going live, three settings matter:
+
+1. `PUBLIC_SITE_URL` — the website's public origin. Stripe sends the customer
+   back here after payment.
+2. `CORS_ORIGINS` — that same origin, instead of `*`.
+3. `STRIPE_WEBHOOK_SECRET` — with the Stripe endpoint pointing at
+   `https://<api-host>/webhooks/stripe`.
+
+Two operational notes:
+
+- **No inline comments in `.env`.** Neither Node nor `docker --env-file` strips
+  a `#` from the middle of a line, so `SMTP_PORT=587  # 465 for TLS` becomes the
+  literal value `587  # 465 for TLS` and the service refuses to start. Comments
+  must sit on their own line.
+- **`docker compose config` prints secrets in cleartext**, because they live in
+  `.env`. Do not run it where the output is captured, such as CI logs.
 
 ---
 

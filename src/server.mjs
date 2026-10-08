@@ -19,6 +19,37 @@ import { createApp } from "./app.mjs";
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json");
 
+/**
+ * Check the SMTP settings in the background: connects and authenticates but
+ * sends nothing. A failure is logged, never fatal — the email stays "due" for a
+ * retry, and bookings keep flowing.
+ */
+async function verifySmtp(mailer, smtp, logger) {
+  logger.info("checking the SMTP connection", {
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+  });
+
+  try {
+    await mailer.verify();
+    logger.info("SMTP connection verified", { host: smtp.host, port: smtp.port });
+  } catch (error) {
+    logger.error("SMTP verification failed", {
+      host: smtp.host,
+      port: smtp.port,
+      message: error.message,
+    });
+    logger.warn("emails will fail until the SMTP settings are fixed");
+  }
+
+  if (!smtp.secure && !smtp.requireTLS) {
+    logger.warn(
+      "SMTP is neither implicit TLS nor STARTTLS — traffic is sent in the clear"
+    );
+  }
+}
+
 async function main() {
   const envFile = process.env.ENV_FILE || ".env";
   const loaded = loadEnvFile(envFile);
@@ -54,37 +85,6 @@ async function main() {
   const stripe = createStripeClient(config.stripe);
   const mailer = createMailer(config.email, logger);
 
-  // Prove the SMTP settings work before a customer depends on them. This
-  // connects and authenticates but sends nothing.
-  if (config.email.transport === "smtp") {
-    const smtp = config.email.smtp;
-    logger.info("checking the SMTP connection", {
-      host: smtp.host,
-      port: smtp.port,
-      secure: smtp.secure,
-    });
-
-    try {
-      await mailer.verify();
-      logger.info("SMTP connection verified", { host: smtp.host, port: smtp.port });
-    } catch (error) {
-      // Not fatal: the mail server may be briefly unreachable, and a booking
-      // must not fail because of it. The email stays "due" and is retried.
-      logger.error("SMTP verification failed", {
-        host: smtp.host,
-        port: smtp.port,
-        message: error.message,
-      });
-      logger.warn("emails will fail until the SMTP settings are fixed");
-    }
-
-    if (!smtp.secure && !smtp.requireTLS) {
-      logger.warn(
-        "SMTP is neither implicit TLS nor STARTTLS — traffic is sent in the clear"
-      );
-    }
-  }
-
   const app = createApp({ config, client, stripe, mailer, logger, version });
 
   const server = app.listen(config.http.port, config.http.host, () => {
@@ -97,6 +97,14 @@ async function main() {
       "this process holds the Supabase secret key — keep it on loopback or behind a TLS proxy"
     );
   });
+
+  // Check the SMTP settings once the listener is already up. Awaiting this
+  // first would hold the whole service hostage to a slow mail host — a
+  // container healthcheck would fail — and taking bookings must not depend on
+  // the mail server being reachable.
+  if (config.email.transport === "smtp") {
+    void verifySmtp(mailer, config.email.smtp, logger);
+  }
 
   const shutdown = (signal) => {
     logger.info("shutting down", { signal });
