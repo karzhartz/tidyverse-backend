@@ -1,5 +1,5 @@
 # wimak-service
-
+Test push
 The server-side half of **Wimak Total Care**. It does two jobs:
 
 1. **Payments API** — every website booking creates a Stripe Checkout Session,
